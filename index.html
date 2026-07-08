@@ -31,6 +31,7 @@
         </nav>
 
         <div class="top-actions">
+          <button class="button ghost" id="undoAction" disabled>Undo</button>
           <button class="button ghost" id="resetView">Reset view</button>
           <button class="button primary" id="exportPlan">Export plan</button>
         </div>
@@ -93,6 +94,15 @@
             </div>
           </div>
 
+          <div class="control-group range-control">
+            <div class="control-label">
+              <label for="rotation">Global rotation</label>
+              <output id="rotationOutput">0°</output>
+            </div>
+            <input id="rotation" type="range" min="-180" max="180" value="0" step="1" />
+            <div class="range-ends"><span>−180°</span><span>180°</span></div>
+          </div>
+
           <div class="control-group custom-controls" id="customControls" hidden>
             <div class="custom-heading">
               <div>
@@ -101,7 +111,7 @@
               </div>
               <div class="point-actions">
                 <button id="addPoint" title="Add control point">+</button>
-                <button id="removePoint" title="Remove selected point">−</button>
+                <button id="removePoint" title="Delete selected point">×</button>
               </div>
             </div>
             <div class="axis-control">
@@ -116,7 +126,17 @@
                 <label for="pointY">Height</label>
                 <output id="pointYOutput">100%</output>
               </div>
-              <input id="pointY" type="range" min="0" max="140" value="100" />
+              <input id="pointY" type="range" min="-100" max="200" value="100" />
+            </div>
+            <div class="symmetry-row">
+              <div>
+                <label for="symmetry">Mirror symmetry</label>
+                <p>Keep both halves matched.</p>
+              </div>
+              <label class="switch">
+                <input id="symmetry" type="checkbox" />
+                <span></span>
+              </label>
             </div>
           </div>
 
@@ -152,13 +172,11 @@
 
         <section class="viewport-wrap" aria-label="3D bridge preview">
           <canvas id="glCanvas"></canvas>
-          <div class="curve-editor" id="curveEditor" hidden>
-            <div class="editor-title">
-              <span>Custom elevation</span>
-              <small>Drag points · Double-click to add</small>
-            </div>
-            <canvas id="curveEditorCanvas"></canvas>
+          <div class="world-handles" id="worldHandles" hidden>
+            <button class="world-axis x-axis" id="pointXAxis" data-axis="x" aria-label="Drag selected point across span"></button>
+            <button class="world-axis y-axis" id="pointYAxis" data-axis="y" aria-label="Drag selected point vertically"></button>
             <div id="curveHandles"></div>
+            <div class="world-edit-hint">Drag a point freely · Drag an axis to constrain</div>
           </div>
           <div class="viewport-fade"></div>
           <div class="viewport-info">

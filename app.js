@@ -9,6 +9,8 @@ const state = {
   thickness: 2,
   railings: true,
   material: "sandstone",
+  rotation: 0,
+  symmetry: false,
   customPoints: [
     { t: 0, h: 0 },
     { t: .25, h: .62 },
@@ -46,6 +48,61 @@ let positionLocation;
 let colorLocation;
 let matrixLocation;
 let animationFrame;
+let lastViewProjection;
+const history = [];
+let historyTransaction = false;
+
+function snapshotState() {
+  return JSON.stringify({
+    curve: state.curve,
+    span: state.span,
+    rise: state.rise,
+    width: state.width,
+    thickness: state.thickness,
+    railings: state.railings,
+    material: state.material,
+    rotation: state.rotation,
+    symmetry: state.symmetry,
+    customPoints: state.customPoints,
+    selectedPoint: state.selectedPoint,
+  });
+}
+
+function pushHistory() {
+  const snapshot = snapshotState();
+  if (history[history.length - 1] !== snapshot) history.push(snapshot);
+  if (history.length > 80) history.shift();
+  $("#undoAction").disabled = history.length === 0;
+}
+
+function beginHistoryTransaction() {
+  if (!historyTransaction) pushHistory();
+  historyTransaction = true;
+}
+
+function endHistoryTransaction() {
+  historyTransaction = false;
+}
+
+function syncControls() {
+  ["span", "rise", "width", "thickness", "rotation"].forEach((id) => {
+    $(`#${id}`).value = state[id];
+  });
+  $("#railings").checked = state.railings;
+  $("#symmetry").checked = state.symmetry;
+  $$(".segmented button").forEach((button) => button.classList.toggle("active", button.dataset.value === state.curve));
+  $$(".swatch").forEach((button) => button.classList.toggle("active", button.dataset.material === state.material));
+}
+
+function undo() {
+  const snapshot = history.pop();
+  if (!snapshot) return;
+  const restored = JSON.parse(snapshot);
+  Object.assign(state, restored);
+  syncControls();
+  $("#undoAction").disabled = history.length === 0;
+  buildModel();
+}
 
 function rawCurve(t) {
   if (state.curve === "custom") {
@@ -64,7 +121,7 @@ function rawCurve(t) {
     const u3 = u2 * u;
     const h = (2*u3 - 3*u2 + 1)*p1.h + (u3 - 2*u2 + u)*m1
       + (-2*u3 + 3*u2)*p2.h + (u3 - u2)*m2;
-    return Math.max(0, h) * state.rise;
+    return Math.max(-1, Math.min(2, h)) * state.rise;
   }
   if (state.curve === "catenary") {
     const a = 2.25;
@@ -82,6 +139,20 @@ function curveHeight(t) {
   return Math.round(rawCurve(t));
 }
 
+function bridgeAngle() {
+  return state.rotation * Math.PI / 180;
+}
+
+function bridgeWorldPosition(t, y, across = 0) {
+  const angle = bridgeAngle();
+  const along = t * state.span - state.span / 2;
+  return {
+    x: along * Math.cos(angle) - across * Math.sin(angle),
+    y,
+    z: along * Math.sin(angle) + across * Math.cos(angle),
+  };
+}
+
 function buildModel() {
   const map = new Map();
   structureCount = 0;
@@ -96,14 +167,18 @@ function buildModel() {
   };
 
   for (let i = 0; i <= state.span; i++) {
-    const x = i - state.span / 2;
     const y = curveHeight(i / state.span);
-    for (let z = -halfWidth; z <= halfWidth; z++) {
+    for (let across = -halfWidth; across <= halfWidth; across++) {
+      const position = bridgeWorldPosition(i / state.span, y, across);
+      const x = Math.round(position.x);
+      const z = Math.round(position.z);
       for (let d = 0; d < state.thickness; d++) add(x, y - d, z);
     }
     if (state.railings) {
-      add(x, y + 1, -halfWidth, "railing");
-      add(x, y + 1, halfWidth, "railing");
+      [-halfWidth, halfWidth].forEach((across) => {
+        const position = bridgeWorldPosition(i / state.span, y + 1, across);
+        add(Math.round(position.x), y + 1, Math.round(position.z), "railing");
+      });
     }
   }
   blocks = [...map.values()];
@@ -321,7 +396,8 @@ function render() {
   ];
   const projection = mat4.perspective(Math.PI / 4.2, width / height, .1, 300);
   const view = mat4.lookAt(eye, state.target, [0, 1, 0]);
-  gl.uniformMatrix4fv(matrixLocation, false, new Float32Array(mat4.multiply(projection, view)));
+  lastViewProjection = mat4.multiply(projection, view);
+  gl.uniformMatrix4fv(matrixLocation, false, new Float32Array(lastViewProjection));
 
   const draw = (pos, color, mode, count) => {
     gl.bindBuffer(gl.ARRAY_BUFFER, pos);
@@ -334,6 +410,7 @@ function render() {
   };
   draw(gridPositionBuffer, gridColorBuffer, gl.LINES, gridVertexCount);
   draw(positionBuffer, colorBuffer, gl.TRIANGLES, vertexCount);
+  updateWorldHandles();
 }
 
 function scheduleRender() {
@@ -343,10 +420,12 @@ function scheduleRender() {
 function updateStats() {
   const heights = Array.from({ length: state.span + 1 }, (_, i) => curveHeight(i / state.span));
   const maxStep = Math.max(...heights.slice(1).map((h, i) => Math.abs(h - heights[i])));
+  const xs = blocks.map((block) => block.x);
+  const zs = blocks.map((block) => block.z);
   $("#blockCount").textContent = blocks.length.toLocaleString();
   $("#structureCount").textContent = structureCount.toLocaleString();
   $("#railingCount").textContent = railingCount.toLocaleString();
-  $("#footprintStat").textContent = `${state.span + 1} × ${state.width}`;
+  $("#footprintStat").textContent = `${Math.max(...xs) - Math.min(...xs) + 1} × ${Math.max(...zs) - Math.min(...zs) + 1}`;
   $("#heightStat").textContent = `${Math.max(...heights) + 2}`;
   $("#slopeStat").textContent = maxStep === 0 ? "Level" : `1 : ${Math.max(1, Math.round(1 / maxStep))}`;
   $("#layersStat").textContent = `${Math.max(...blocks.map((b) => b.y)) - Math.min(...blocks.map((b) => b.y)) + 1}`;
@@ -355,6 +434,7 @@ function updateStats() {
   $("#riseDimension").textContent = `${state.rise} block rise`;
   $("#spanOutput").textContent = `${state.span} blocks`;
   $("#riseOutput").textContent = `${state.rise} blocks`;
+  $("#rotationOutput").textContent = `${state.rotation}°`;
   updatePointControls();
 }
 
@@ -393,81 +473,28 @@ function drawProfile() {
   ctx.stroke();
 }
 
-function editorMetrics() {
-  const editor = $("#curveEditor");
-  const pad = { left: 34, right: 24, top: 48, bottom: 30 };
+function projectWorldPoint(x, y, z = 0) {
+  if (!lastViewProjection || !gl) return null;
+  const m = lastViewProjection;
+  const w = m[3]*x + m[7]*y + m[11]*z + m[15];
+  if (w <= 0) return null;
+  const clipX = (m[0]*x + m[4]*y + m[8]*z + m[12]) / w;
+  const clipY = (m[1]*x + m[5]*y + m[9]*z + m[13]) / w;
   return {
-    width: editor.clientWidth,
-    height: editor.clientHeight,
-    pad,
-    plotWidth: Math.max(1, editor.clientWidth - pad.left - pad.right),
-    plotHeight: Math.max(1, editor.clientHeight - pad.top - pad.bottom),
+    x: (clipX * .5 + .5) * gl.canvas.clientWidth,
+    y: (.5 - clipY * .5) * gl.canvas.clientHeight,
   };
 }
 
-function editorPosition(point, metrics = editorMetrics()) {
-  return {
-    x: metrics.pad.left + point.t * metrics.plotWidth,
-    y: metrics.pad.top + (1 - point.h / 1.4) * metrics.plotHeight,
-  };
-}
-
-function drawCustomEditor() {
-  const editor = $("#curveEditor");
-  if (state.curve !== "custom" || editor.hidden) return;
-  const canvas = $("#curveEditorCanvas");
-  const metrics = editorMetrics();
-  const dpr = Math.min(devicePixelRatio || 1, 2);
-  canvas.width = metrics.width * dpr;
-  canvas.height = metrics.height * dpr;
-  const ctx = canvas.getContext("2d");
-  ctx.scale(dpr, dpr);
-  ctx.clearRect(0, 0, metrics.width, metrics.height);
-
-  ctx.strokeStyle = "rgba(236,233,223,.075)";
-  ctx.lineWidth = 1;
-  for (let i = 0; i <= 8; i++) {
-    const x = metrics.pad.left + (i / 8) * metrics.plotWidth;
-    ctx.beginPath(); ctx.moveTo(x, metrics.pad.top); ctx.lineTo(x, metrics.height - metrics.pad.bottom); ctx.stroke();
-  }
-  for (let i = 0; i <= 7; i++) {
-    const y = metrics.pad.top + (i / 7) * metrics.plotHeight;
-    ctx.beginPath(); ctx.moveTo(metrics.pad.left, y); ctx.lineTo(metrics.width - metrics.pad.right, y); ctx.stroke();
-  }
-  ctx.fillStyle = "rgba(236,233,223,.32)";
-  ctx.font = "9px ui-monospace, monospace";
-  ctx.fillText("0", metrics.pad.left - 3, metrics.height - 11);
-  ctx.fillText(`${state.span} blocks`, metrics.width - metrics.pad.right - 44, metrics.height - 11);
-  ctx.fillText(`${Math.round(state.rise * 1.4)}`, 9, metrics.pad.top + 3);
-
-  ctx.beginPath();
-  for (let i = 0; i <= 160; i++) {
-    const t = i / 160;
-    const p = editorPosition({ t, h: rawCurve(t) / state.rise }, metrics);
-    i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y);
-  }
-  ctx.lineTo(metrics.width - metrics.pad.right, metrics.height - metrics.pad.bottom);
-  ctx.lineTo(metrics.pad.left, metrics.height - metrics.pad.bottom);
-  ctx.closePath();
-  const fill = ctx.createLinearGradient(0, metrics.pad.top, 0, metrics.height);
-  fill.addColorStop(0, "rgba(230,164,93,.28)");
-  fill.addColorStop(1, "rgba(230,164,93,.015)");
-  ctx.fillStyle = fill;
-  ctx.fill();
-  ctx.beginPath();
-  for (let i = 0; i <= 160; i++) {
-    const t = i / 160;
-    const p = editorPosition({ t, h: rawCurve(t) / state.rise }, metrics);
-    i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y);
-  }
-  ctx.strokeStyle = "#e6a45d";
-  ctx.lineWidth = 2;
-  ctx.stroke();
-
+function updateWorldHandles() {
+  const overlay = $("#worldHandles");
+  if (state.curve !== "custom" || overlay.hidden) return;
   const handles = $("#curveHandles");
   handles.innerHTML = "";
   state.customPoints.forEach((point, index) => {
-    const position = editorPosition(point, metrics);
+    const world = bridgeWorldPosition(point.t, point.h * state.rise);
+    const position = projectWorldPoint(world.x, world.y, world.z);
+    if (!position) return;
     const handle = document.createElement("button");
     handle.className = `curve-handle${index === state.selectedPoint ? " selected" : ""}${index === 0 || index === state.customPoints.length - 1 ? " endpoint" : ""}`;
     handle.style.left = `${position.x}px`;
@@ -476,37 +503,104 @@ function drawCustomEditor() {
     handle.setAttribute("aria-label", `Control point ${index + 1}`);
     handles.appendChild(handle);
   });
+  const selected = state.customPoints[state.selectedPoint];
+  const selectedWorld = bridgeWorldPosition(selected.t, selected.h * state.rise);
+  const selectedPosition = projectWorldPoint(selectedWorld.x, selectedWorld.y, selectedWorld.z);
+  if (selectedPosition) {
+    const angle = bridgeAngle();
+    const xDirection = projectWorldPoint(selectedWorld.x + Math.cos(angle), selectedWorld.y, selectedWorld.z + Math.sin(angle));
+    const yDirection = projectWorldPoint(selectedWorld.x, selectedWorld.y + 1, selectedWorld.z);
+    const axes = [
+      ["pointXAxis", xDirection],
+      ["pointYAxis", yDirection],
+    ];
+    axes.forEach(([id, direction]) => {
+      const axis = $(`#${id}`);
+      axis.style.left = `${selectedPosition.x}px`;
+      axis.style.top = `${selectedPosition.y}px`;
+      if (direction) {
+        const angle = Math.atan2(direction.y - selectedPosition.y, direction.x - selectedPosition.x) * 180 / Math.PI;
+        axis.style.transform = `translate(-50%, -50%) rotate(${angle}deg)`;
+      }
+    });
+    $("#pointXAxis").hidden = state.selectedPoint === 0 || state.selectedPoint === state.customPoints.length - 1;
+  }
 }
 
 function updatePointControls() {
   const custom = state.curve === "custom";
   $("#customControls").hidden = !custom;
-  $("#curveEditor").hidden = !custom;
+  $("#worldHandles").hidden = !custom;
   if (!custom) return;
   const point = state.customPoints[state.selectedPoint];
   const endpoint = state.selectedPoint === 0 || state.selectedPoint === state.customPoints.length - 1;
-  $("#pointLabel").textContent = endpoint ? "Anchored endpoint" : `Point ${state.selectedPoint} of ${state.customPoints.length - 2}`;
+  $("#pointLabel").textContent = endpoint ? `${state.selectedPoint === 0 ? "Start" : "End"} endpoint` : `Point ${state.selectedPoint} of ${state.customPoints.length - 2}`;
   $("#pointX").value = Math.round(point.t * 100);
   $("#pointY").value = Math.round(point.h * 100);
   $("#pointXOutput").textContent = `${Math.round(point.t * 100)}%`;
   $("#pointYOutput").textContent = `${Math.round(point.h * state.rise)} blocks`;
   $("#pointX").disabled = endpoint;
-  $("#pointY").disabled = endpoint;
+  $("#pointY").disabled = false;
   $("#removePoint").disabled = endpoint || state.customPoints.length <= 3;
-  drawCustomEditor();
+  updateWorldHandles();
 }
 
 function updateSelectedPoint(axis, value) {
   const index = state.selectedPoint;
-  if (index === 0 || index === state.customPoints.length - 1) return;
   const point = state.customPoints[index];
+  const previousT = point.t;
   if (axis === "t") {
-    const previous = state.customPoints[index - 1].t + .02;
-    const next = state.customPoints[index + 1].t - .02;
-    point.t = Math.max(previous, Math.min(next, value));
+    if (index === 0 || index === state.customPoints.length - 1) return;
+    point.t = Math.max(.02, Math.min(.98, value));
   } else {
-    point.h = Math.max(0, Math.min(1.4, value));
+    point.h = Math.max(-1, Math.min(2, value));
   }
+  mirrorPointChange(point, previousT);
+  reorderSelectedPoint(point);
+  buildModel();
+}
+
+function reorderSelectedPoint(point) {
+  state.customPoints.sort((a, b) => a.t - b.t);
+  state.selectedPoint = state.customPoints.indexOf(point);
+}
+
+function mirrorPointChange(point, previousT) {
+  if (!state.symmetry) return;
+  const oldMirrorT = 1 - previousT;
+  const mirror = state.customPoints
+    .filter((candidate) => candidate !== point)
+    .sort((a, b) => Math.abs(a.t - oldMirrorT) - Math.abs(b.t - oldMirrorT))[0];
+  if (!mirror) return;
+  if (Math.abs(previousT - .5) < .001) {
+    point.t = .5;
+    return;
+  }
+  mirror.t = 1 - point.t;
+  mirror.h = point.h;
+}
+
+function enableSymmetry() {
+  const currentHeight = rawCurve(.5) / state.rise;
+  const left = state.customPoints.filter((point) => point.t < .5);
+  const center = state.customPoints.find((point) => Math.abs(point.t - .5) < .001) || { t: .5, h: currentHeight };
+  const mirrored = left.slice().reverse().map((point) => ({ t: 1 - point.t, h: point.h }));
+  state.customPoints = [...left, center, ...mirrored].sort((a, b) => a.t - b.t);
+  state.selectedPoint = state.customPoints.indexOf(center);
+}
+
+function deleteSelectedPoint() {
+  const index = state.selectedPoint;
+  if (index === 0 || index === state.customPoints.length - 1 || state.customPoints.length <= 3) return;
+  pushHistory();
+  const point = state.customPoints[index];
+  if (state.symmetry && Math.abs(point.t - .5) > .001) {
+    const mirrorT = 1 - point.t;
+    state.customPoints = state.customPoints.filter((candidate) => candidate !== point && Math.abs(candidate.t - mirrorT) > .001);
+  } else {
+    state.customPoints.splice(index, 1);
+  }
+  state.selectedPoint = Math.min(Math.max(1, index - 1), state.customPoints.length - 2);
   buildModel();
 }
 
@@ -544,7 +638,10 @@ function exportPlan() {
 
 function bindControls() {
   ["span", "rise"].forEach((id) => {
+    $(`#${id}`).addEventListener("pointerdown", beginHistoryTransaction);
+    $(`#${id}`).addEventListener("pointerup", endHistoryTransaction);
     $(`#${id}`).addEventListener("input", (event) => {
+      if (!historyTransaction) pushHistory();
       state[id] = Number(event.target.value);
       if (id === "span") state.zoom = Math.max(48, state.span * 1.45);
       state.target[1] = state.rise / 2 - 1;
@@ -552,16 +649,18 @@ function bindControls() {
     });
   });
   ["railings"].forEach((id) => $(`#${id}`).addEventListener("change", (e) => {
+    pushHistory();
     state[id] = e.target.checked;
     buildModel();
   }));
   $$(".segmented button").forEach((button) => button.addEventListener("click", () => {
+    pushHistory();
     state.curve = button.dataset.value;
     $$(".segmented button").forEach((b) => b.classList.toggle("active", b === button));
-    if (state.curve === "custom") setView("elevation");
     buildModel();
   }));
   $$(".stepper button").forEach((button) => button.addEventListener("click", () => {
+    pushHistory();
     const input = $(`#${button.dataset.target}`);
     let next = Number(input.value) + Number(button.dataset.step);
     next = Math.max(Number(input.min), Math.min(Number(input.max), next));
@@ -572,6 +671,7 @@ function bindControls() {
     buildModel();
   }));
   $$(".swatch").forEach((button) => button.addEventListener("click", () => {
+    pushHistory();
     state.material = button.dataset.material;
     $$(".swatch").forEach((b) => b.classList.toggle("active", b === button));
     rebuildGeometry();
@@ -579,10 +679,33 @@ function bindControls() {
   }));
   $$(".tab").forEach((button) => button.addEventListener("click", () => setView(button.dataset.view)));
   $("#resetView").addEventListener("click", () => setView("perspective"));
+  $("#undoAction").addEventListener("click", undo);
   $("#exportPlan").addEventListener("click", exportPlan);
-  $("#pointX").addEventListener("input", (event) => updateSelectedPoint("t", Number(event.target.value) / 100));
-  $("#pointY").addEventListener("input", (event) => updateSelectedPoint("h", Number(event.target.value) / 100));
+  ["pointX", "pointY", "rotation"].forEach((id) => {
+    $(`#${id}`).addEventListener("pointerdown", beginHistoryTransaction);
+    $(`#${id}`).addEventListener("pointerup", endHistoryTransaction);
+  });
+  $("#pointX").addEventListener("input", (event) => {
+    if (!historyTransaction) pushHistory();
+    updateSelectedPoint("t", Number(event.target.value) / 100);
+  });
+  $("#pointY").addEventListener("input", (event) => {
+    if (!historyTransaction) pushHistory();
+    updateSelectedPoint("h", Number(event.target.value) / 100);
+  });
+  $("#rotation").addEventListener("input", (event) => {
+    if (!historyTransaction) pushHistory();
+    state.rotation = Number(event.target.value);
+    buildModel();
+  });
+  $("#symmetry").addEventListener("change", (event) => {
+    pushHistory();
+    state.symmetry = event.target.checked;
+    if (state.symmetry) enableSymmetry();
+    buildModel();
+  });
   $("#addPoint").addEventListener("click", () => {
+    pushHistory();
     let gapIndex = 0;
     let largestGap = 0;
     state.customPoints.slice(0, -1).forEach((point, index) => {
@@ -591,18 +714,19 @@ function bindControls() {
     });
     const left = state.customPoints[gapIndex];
     const right = state.customPoints[gapIndex + 1];
-    state.customPoints.splice(gapIndex + 1, 0, { t: (left.t + right.t) / 2, h: (left.h + right.h) / 2 });
-    state.selectedPoint = gapIndex + 1;
+    const point = { t: (left.t + right.t) / 2, h: (left.h + right.h) / 2 };
+    state.customPoints.splice(gapIndex + 1, 0, point);
+    if (state.symmetry && Math.abs(point.t - .5) > .001) {
+      state.customPoints.push({ t: 1 - point.t, h: point.h });
+      reorderSelectedPoint(point);
+    } else {
+      state.selectedPoint = gapIndex + 1;
+    }
     buildModel();
   });
-  $("#removePoint").addEventListener("click", () => {
-    const index = state.selectedPoint;
-    if (index === 0 || index === state.customPoints.length - 1 || state.customPoints.length <= 3) return;
-    state.customPoints.splice(index, 1);
-    state.selectedPoint = Math.max(1, index - 1);
-    buildModel();
-  });
+  $("#removePoint").addEventListener("click", deleteSelectedPoint);
   $("#randomize").addEventListener("click", () => {
+    pushHistory();
     const curves = ["parabolic", "catenary", "circular"];
     state.curve = curves[Math.floor(Math.random() * curves.length)];
     state.span = 20 + Math.floor(Math.random() * 29);
@@ -634,44 +758,76 @@ function bindControls() {
     state.zoom = Math.max(12, Math.min(150, state.zoom * Math.exp(e.deltaY * .001)));
     scheduleRender();
   }, { passive: false });
-  const editor = $("#curveEditor");
   let draggingPoint = false;
-  const moveEditorPoint = (event) => {
+  let dragAxis = "free";
+  let lastPointer = { x: 0, y: 0 };
+  const moveWorldPoint = (event) => {
     if (!draggingPoint) return;
-    const metrics = editorMetrics();
-    const rect = editor.getBoundingClientRect();
-    const t = (event.clientX - rect.left - metrics.pad.left) / metrics.plotWidth;
-    const h = 1.4 * (1 - (event.clientY - rect.top - metrics.pad.top) / metrics.plotHeight);
     const index = state.selectedPoint;
     const point = state.customPoints[index];
-    point.t = Math.max(state.customPoints[index - 1].t + .02, Math.min(state.customPoints[index + 1].t - .02, t));
-    point.h = Math.max(0, Math.min(1.4, h));
+    const previousT = point.t;
+    const world = bridgeWorldPosition(point.t, point.h * state.rise);
+    const angle = bridgeAngle();
+    const origin = projectWorldPoint(world.x, world.y, world.z);
+    const xStep = projectWorldPoint(world.x + Math.cos(angle), world.y, world.z + Math.sin(angle));
+    const yStep = projectWorldPoint(world.x, world.y + 1, world.z);
+    if (!origin || !xStep || !yStep) return;
+    const vx = { x: xStep.x - origin.x, y: xStep.y - origin.y };
+    const vy = { x: yStep.x - origin.x, y: yStep.y - origin.y };
+    const dx = event.clientX - lastPointer.x;
+    const dy = event.clientY - lastPointer.y;
+    const det = vx.x * vy.y - vx.y * vy.x;
+    if (Math.abs(det) < .02) return;
+    const deltaWorldX = (dx * vy.y - dy * vy.x) / det;
+    const deltaWorldY = (vx.x * dy - vx.y * dx) / det;
+    if (dragAxis !== "y" && index > 0 && index < state.customPoints.length - 1) {
+      point.t = Math.max(.02, Math.min(.98, point.t + deltaWorldX / state.span));
+    }
+    if (dragAxis !== "x") {
+      point.h = Math.max(-1, Math.min(2, point.h + deltaWorldY / state.rise));
+    }
+    mirrorPointChange(point, previousT);
+    reorderSelectedPoint(point);
+    lastPointer = { x: event.clientX, y: event.clientY };
     buildModel();
   };
-  $("#curveHandles").addEventListener("pointerdown", (event) => {
+  $("#worldHandles").addEventListener("pointerdown", (event) => {
     const handle = event.target.closest(".curve-handle");
-    if (!handle) return;
-    state.selectedPoint = Number(handle.dataset.index);
-    updatePointControls();
-    if (state.selectedPoint === 0 || state.selectedPoint === state.customPoints.length - 1) return;
+    const axis = event.target.closest(".world-axis");
+    if (!handle && !axis) return;
+    if (handle) {
+      state.selectedPoint = Number(handle.dataset.index);
+      dragAxis = state.selectedPoint === 0 || state.selectedPoint === state.customPoints.length - 1 ? "y" : "free";
+      updatePointControls();
+    } else {
+      dragAxis = axis.dataset.axis;
+      axis.classList.add("active");
+    }
+    beginHistoryTransaction();
     draggingPoint = true;
+    lastPointer = { x: event.clientX, y: event.clientY };
     event.preventDefault();
   });
-  window.addEventListener("pointermove", moveEditorPoint);
-  window.addEventListener("pointerup", () => draggingPoint = false);
-  window.addEventListener("pointercancel", () => draggingPoint = false);
-  editor.addEventListener("dblclick", (event) => {
-    if (event.target.closest(".curve-handle")) return;
-    const metrics = editorMetrics();
-    const rect = editor.getBoundingClientRect();
-    const t = Math.max(.02, Math.min(.98, (event.clientX - rect.left - metrics.pad.left) / metrics.plotWidth));
-    const h = Math.max(0, Math.min(1.4, 1.4 * (1 - (event.clientY - rect.top - metrics.pad.top) / metrics.plotHeight)));
-    const insertAt = state.customPoints.findIndex((point) => point.t > t);
-    state.customPoints.splice(insertAt, 0, { t, h });
-    state.selectedPoint = insertAt;
-    buildModel();
+  window.addEventListener("pointermove", moveWorldPoint);
+  const stopWorldDrag = () => {
+    draggingPoint = false;
+    endHistoryTransaction();
+    $$(".world-axis").forEach((axis) => axis.classList.remove("active"));
+  };
+  window.addEventListener("pointerup", stopWorldDrag);
+  window.addEventListener("pointercancel", stopWorldDrag);
+  document.addEventListener("keydown", (event) => {
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
+      event.preventDefault();
+      undo();
+      return;
+    }
+    if ((event.key === "Delete" || event.key === "Backspace") && state.curve === "custom") {
+      event.preventDefault();
+      deleteSelectedPoint();
+    }
   });
-  window.addEventListener("resize", () => { drawProfile(); drawCustomEditor(); scheduleRender(); });
+  window.addEventListener("resize", () => { drawProfile(); scheduleRender(); });
 }
 
 initWebGL();

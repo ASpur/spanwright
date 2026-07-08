@@ -104,30 +104,7 @@
           </div>
 
           <div class="control-group custom-controls" id="customControls" hidden>
-            <div class="custom-heading">
-              <div>
-                <label>Selected point</label>
-                <p id="pointLabel">Crown point</p>
-              </div>
-              <div class="point-actions">
-                <button id="addPoint" title="Add control point">+</button>
-                <button id="removePoint" title="Delete selected point">×</button>
-              </div>
-            </div>
-            <div class="axis-control">
-              <div class="control-label">
-                <label for="pointX">Across span</label>
-                <output id="pointXOutput">50%</output>
-              </div>
-              <input id="pointX" type="range" min="1" max="99" value="50" />
-            </div>
-            <div class="axis-control">
-              <div class="control-label">
-                <label for="pointY">Height</label>
-                <output id="pointYOutput">100%</output>
-              </div>
-              <input id="pointY" type="range" min="-100" max="200" value="100" />
-            </div>
+            <button class="add-point-button" id="addPoint">+ Add control point</button>
             <div class="symmetry-row">
               <div>
                 <label for="symmetry">Mirror symmetry</label>
@@ -177,6 +154,24 @@
             <button class="world-axis y-axis" id="pointYAxis" data-axis="y" aria-label="Drag selected point vertically"></button>
             <div id="curveHandles"></div>
             <div class="world-edit-hint">Drag a point freely · Drag an axis to constrain</div>
+          </div>
+          <div class="point-popover" id="pointPopover" hidden>
+            <div class="popover-heading">
+              <div>
+                <small>Control point</small>
+                <strong id="popoverPointLabel">Point 1</strong>
+              </div>
+              <button id="closePointPopover" aria-label="Close point editor">×</button>
+            </div>
+            <label for="popupPointX">
+              Along span
+              <span><input id="popupPointX" type="number" step="0.5" /> blocks</span>
+            </label>
+            <label for="popupPointY">
+              Elevation
+              <span><input id="popupPointY" type="number" step="0.5" /> blocks</span>
+            </label>
+            <button class="delete-point-button" id="deletePopupPoint">Delete point</button>
           </div>
           <div class="viewport-fade"></div>
           <div class="viewport-info">

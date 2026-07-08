@@ -49,6 +49,8 @@ let colorLocation;
 let matrixLocation;
 let animationFrame;
 let lastViewProjection;
+let pointPopoverOpen = false;
+let popoverEditRecorded = false;
 const history = [];
 let historyTransaction = false;
 
@@ -102,6 +104,7 @@ function undo() {
   syncControls();
   $("#undoAction").disabled = history.length === 0;
   buildModel();
+  closePointPopover();
 }
 
 function rawCurve(t) {
@@ -524,6 +527,7 @@ function updateWorldHandles() {
       }
     });
     $("#pointXAxis").hidden = state.selectedPoint === 0 || state.selectedPoint === state.customPoints.length - 1;
+    positionPointPopover(selectedPosition);
   }
 }
 
@@ -531,18 +535,52 @@ function updatePointControls() {
   const custom = state.curve === "custom";
   $("#customControls").hidden = !custom;
   $("#worldHandles").hidden = !custom;
-  if (!custom) return;
+  if (!custom) {
+    closePointPopover();
+    return;
+  }
   const point = state.customPoints[state.selectedPoint];
   const endpoint = state.selectedPoint === 0 || state.selectedPoint === state.customPoints.length - 1;
-  $("#pointLabel").textContent = endpoint ? `${state.selectedPoint === 0 ? "Start" : "End"} endpoint` : `Point ${state.selectedPoint} of ${state.customPoints.length - 2}`;
-  $("#pointX").value = Math.round(point.t * 100);
-  $("#pointY").value = Math.round(point.h * 100);
-  $("#pointXOutput").textContent = `${Math.round(point.t * 100)}%`;
-  $("#pointYOutput").textContent = `${Math.round(point.h * state.rise)} blocks`;
-  $("#pointX").disabled = endpoint;
-  $("#pointY").disabled = false;
-  $("#removePoint").disabled = endpoint || state.customPoints.length <= 3;
+  $("#popoverPointLabel").textContent = endpoint
+    ? `${state.selectedPoint === 0 ? "Start" : "End"} endpoint`
+    : `Point ${state.selectedPoint} of ${state.customPoints.length - 2}`;
+  $("#popupPointX").value = Number((point.t * state.span).toFixed(2));
+  $("#popupPointY").value = Number((point.h * state.rise).toFixed(2));
+  $("#popupPointX").min = 0;
+  $("#popupPointX").max = state.span;
+  $("#popupPointY").min = -state.rise;
+  $("#popupPointY").max = state.rise * 2;
+  $("#popupPointX").disabled = endpoint;
+  $("#deletePopupPoint").disabled = endpoint || state.customPoints.length <= 3;
   updateWorldHandles();
+}
+
+function positionPointPopover(position) {
+  if (!pointPopoverOpen) return;
+  const popover = $("#pointPopover");
+  const viewport = $(".viewport-wrap");
+  const width = 210;
+  const height = 190;
+  let left = position.x + 22;
+  let top = position.y - 22;
+  if (left + width > viewport.clientWidth - 12) left = position.x - width - 22;
+  left = Math.max(12, Math.min(viewport.clientWidth - width - 12, left));
+  top = Math.max(12, Math.min(viewport.clientHeight - height - 12, top));
+  popover.style.left = `${left}px`;
+  popover.style.top = `${top}px`;
+}
+
+function openPointPopover() {
+  pointPopoverOpen = true;
+  popoverEditRecorded = false;
+  $("#pointPopover").hidden = false;
+  updatePointControls();
+}
+
+function closePointPopover() {
+  pointPopoverOpen = false;
+  popoverEditRecorded = false;
+  $("#pointPopover").hidden = true;
 }
 
 function updateSelectedPoint(axis, value) {
@@ -601,6 +639,7 @@ function deleteSelectedPoint() {
     state.customPoints.splice(index, 1);
   }
   state.selectedPoint = Math.min(Math.max(1, index - 1), state.customPoints.length - 2);
+  closePointPopover();
   buildModel();
 }
 
@@ -681,17 +720,21 @@ function bindControls() {
   $("#resetView").addEventListener("click", () => setView("perspective"));
   $("#undoAction").addEventListener("click", undo);
   $("#exportPlan").addEventListener("click", exportPlan);
-  ["pointX", "pointY", "rotation"].forEach((id) => {
+  ["rotation"].forEach((id) => {
     $(`#${id}`).addEventListener("pointerdown", beginHistoryTransaction);
     $(`#${id}`).addEventListener("pointerup", endHistoryTransaction);
   });
-  $("#pointX").addEventListener("input", (event) => {
-    if (!historyTransaction) pushHistory();
-    updateSelectedPoint("t", Number(event.target.value) / 100);
+  $("#popupPointX").addEventListener("input", (event) => {
+    if (event.target.value === "") return;
+    if (!popoverEditRecorded) pushHistory();
+    popoverEditRecorded = true;
+    updateSelectedPoint("t", Number(event.target.value) / state.span);
   });
-  $("#pointY").addEventListener("input", (event) => {
-    if (!historyTransaction) pushHistory();
-    updateSelectedPoint("h", Number(event.target.value) / 100);
+  $("#popupPointY").addEventListener("input", (event) => {
+    if (event.target.value === "") return;
+    if (!popoverEditRecorded) pushHistory();
+    popoverEditRecorded = true;
+    updateSelectedPoint("h", Number(event.target.value) / state.rise);
   });
   $("#rotation").addEventListener("input", (event) => {
     if (!historyTransaction) pushHistory();
@@ -724,7 +767,8 @@ function bindControls() {
     }
     buildModel();
   });
-  $("#removePoint").addEventListener("click", deleteSelectedPoint);
+  $("#deletePopupPoint").addEventListener("click", deleteSelectedPoint);
+  $("#closePointPopover").addEventListener("click", closePointPopover);
   $("#randomize").addEventListener("click", () => {
     pushHistory();
     const curves = ["parabolic", "catenary", "circular"];
@@ -761,6 +805,7 @@ function bindControls() {
   let draggingPoint = false;
   let dragAxis = "free";
   let lastPointer = { x: 0, y: 0 };
+  let lastPointClick = { index: -1, time: 0 };
   const moveWorldPoint = (event) => {
     if (!draggingPoint) return;
     const index = state.selectedPoint;
@@ -796,9 +841,20 @@ function bindControls() {
     const axis = event.target.closest(".world-axis");
     if (!handle && !axis) return;
     if (handle) {
-      state.selectedPoint = Number(handle.dataset.index);
+      const pointIndex = Number(handle.dataset.index);
+      const now = Date.now();
+      const isDoubleClick = lastPointClick.index === pointIndex && now - lastPointClick.time < 900;
+      state.selectedPoint = pointIndex;
       dragAxis = state.selectedPoint === 0 || state.selectedPoint === state.customPoints.length - 1 ? "y" : "free";
       updatePointControls();
+      if (isDoubleClick) {
+        lastPointClick = { index: -1, time: 0 };
+        openPointPopover();
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+      lastPointClick = { index: pointIndex, time: now };
     } else {
       dragAxis = axis.dataset.axis;
       axis.classList.add("active");
@@ -823,9 +879,11 @@ function bindControls() {
       return;
     }
     if ((event.key === "Delete" || event.key === "Backspace") && state.curve === "custom") {
+      if (event.target.matches("input")) return;
       event.preventDefault();
       deleteSelectedPoint();
     }
+    if (event.key === "Escape") closePointPopover();
   });
   window.addEventListener("resize", () => { drawProfile(); scheduleRender(); });
 }

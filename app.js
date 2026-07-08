@@ -154,24 +154,39 @@ function compileShader(type, source) {
 
 function initWebGL() {
   const canvas = $("#glCanvas");
-  const contextOptions = {
-    antialias: true,
-    alpha: false,
-    depth: true,
-    failIfMajorPerformanceCaveat: false,
-    powerPreference: "high-performance",
-  };
-  gl =
-    canvas.getContext("webgl", contextOptions) ||
-    canvas.getContext("experimental-webgl", contextOptions);
+  const creationErrors = [];
+  canvas.addEventListener("webglcontextcreationerror", (event) => {
+    if (event.statusMessage) creationErrors.push(event.statusMessage);
+  });
 
-  let webgl2 = false;
-  if (!gl) {
-    gl = canvas.getContext("webgl2", contextOptions);
-    webgl2 = Boolean(gl);
+  const contextAttempts = [
+    ["webgl2", undefined],
+    ["webgl2", { antialias: false, failIfMajorPerformanceCaveat: false }],
+    ["webgl", undefined],
+    ["webgl", { antialias: false, failIfMajorPerformanceCaveat: false }],
+    ["experimental-webgl", undefined],
+  ];
+  let contextName = "";
+  for (const [name, options] of contextAttempts) {
+    try {
+      gl = options ? canvas.getContext(name, options) : canvas.getContext(name);
+      if (gl) {
+        contextName = name;
+        break;
+      }
+    } catch (error) {
+      creationErrors.push(`${name}: ${error.message}`);
+    }
   }
+
+  const webgl2 = contextName === "webgl2";
   if (!gl) {
-    $("#webglError").hidden = false;
+    const errorPanel = $("#webglError");
+    const reason = [...new Set(creationErrors)].filter(Boolean).join(" ");
+    errorPanel.textContent = reason
+      ? `WebGL could not start: ${reason}`
+      : "WebGL could not start. Helium may be blocking it for this local site.";
+    errorPanel.hidden = false;
     return;
   }
   const vertexShader = compileShader(

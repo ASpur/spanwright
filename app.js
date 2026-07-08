@@ -154,29 +154,71 @@ function compileShader(type, source) {
 
 function initWebGL() {
   const canvas = $("#glCanvas");
-  gl = canvas.getContext("webgl", { antialias: true, alpha: false });
+  const contextOptions = {
+    antialias: true,
+    alpha: false,
+    depth: true,
+    failIfMajorPerformanceCaveat: false,
+    powerPreference: "high-performance",
+  };
+  gl =
+    canvas.getContext("webgl", contextOptions) ||
+    canvas.getContext("experimental-webgl", contextOptions);
+
+  let webgl2 = false;
+  if (!gl) {
+    gl = canvas.getContext("webgl2", contextOptions);
+    webgl2 = Boolean(gl);
+  }
   if (!gl) {
     $("#webglError").hidden = false;
     return;
   }
-  const vertexShader = compileShader(gl.VERTEX_SHADER, `
-    attribute vec3 a_position;
-    attribute vec3 a_color;
-    uniform mat4 u_matrix;
-    varying vec3 v_color;
-    void main() {
-      gl_Position = u_matrix * vec4(a_position, 1.0);
-      v_color = a_color;
-    }
-  `);
-  const fragmentShader = compileShader(gl.FRAGMENT_SHADER, `
-    precision mediump float;
-    varying vec3 v_color;
-    void main() {
-      float fog = smoothstep(0.0, 1.0, gl_FragCoord.z);
-      gl_FragColor = vec4(mix(v_color, vec3(0.075, 0.09, 0.072), fog * 0.38), 1.0);
-    }
-  `);
+  const vertexShader = compileShader(
+    gl.VERTEX_SHADER,
+    webgl2
+      ? `#version 300 es
+        in vec3 a_position;
+        in vec3 a_color;
+        uniform mat4 u_matrix;
+        out vec3 v_color;
+        void main() {
+          gl_Position = u_matrix * vec4(a_position, 1.0);
+          v_color = a_color;
+        }
+      `
+      : `
+        attribute vec3 a_position;
+        attribute vec3 a_color;
+        uniform mat4 u_matrix;
+        varying vec3 v_color;
+        void main() {
+          gl_Position = u_matrix * vec4(a_position, 1.0);
+          v_color = a_color;
+        }
+      `,
+  );
+  const fragmentShader = compileShader(
+    gl.FRAGMENT_SHADER,
+    webgl2
+      ? `#version 300 es
+        precision mediump float;
+        in vec3 v_color;
+        out vec4 outColor;
+        void main() {
+          float fog = smoothstep(0.0, 1.0, gl_FragCoord.z);
+          outColor = vec4(mix(v_color, vec3(0.075, 0.09, 0.072), fog * 0.38), 1.0);
+        }
+      `
+      : `
+        precision mediump float;
+        varying vec3 v_color;
+        void main() {
+          float fog = smoothstep(0.0, 1.0, gl_FragCoord.z);
+          gl_FragColor = vec4(mix(v_color, vec3(0.075, 0.09, 0.072), fog * 0.38), 1.0);
+        }
+      `,
+  );
   program = gl.createProgram();
   gl.attachShader(program, vertexShader);
   gl.attachShader(program, fragmentShader);

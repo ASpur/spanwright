@@ -7,9 +7,16 @@ const state = {
   rise: 10,
   width: 5,
   thickness: 2,
-  stepping: true,
   railings: true,
   material: "sandstone",
+  customPoints: [
+    { t: 0, h: 0 },
+    { t: .25, h: .62 },
+    { t: .5, h: 1 },
+    { t: .75, h: .62 },
+    { t: 1, h: 0 },
+  ],
+  selectedPoint: 2,
   yaw: -0.78,
   pitch: 0.48,
   zoom: 54,
@@ -41,6 +48,24 @@ let matrixLocation;
 let animationFrame;
 
 function rawCurve(t) {
+  if (state.curve === "custom") {
+    const points = state.customPoints;
+    let index = points.findIndex((point) => point.t >= t);
+    if (index <= 0) return points[0].h * state.rise;
+    if (index < 0) return points[points.length - 1].h * state.rise;
+    const p1 = points[index - 1];
+    const p2 = points[index];
+    const p0 = points[Math.max(0, index - 2)];
+    const p3 = points[Math.min(points.length - 1, index + 1)];
+    const u = (t - p1.t) / Math.max(.001, p2.t - p1.t);
+    const m1 = ((p2.h - p0.h) / Math.max(.001, p2.t - p0.t)) * (p2.t - p1.t);
+    const m2 = ((p3.h - p1.h) / Math.max(.001, p3.t - p1.t)) * (p2.t - p1.t);
+    const u2 = u * u;
+    const u3 = u2 * u;
+    const h = (2*u3 - 3*u2 + 1)*p1.h + (u3 - 2*u2 + u)*m1
+      + (-2*u3 + 3*u2)*p2.h + (u3 - u2)*m2;
+    return Math.max(0, h) * state.rise;
+  }
   if (state.curve === "catenary") {
     const a = 2.25;
     const edge = Math.cosh(a);
@@ -54,8 +79,7 @@ function rawCurve(t) {
 }
 
 function curveHeight(t) {
-  const value = rawCurve(t);
-  return state.stepping ? Math.round(value) : Math.round(value * 2) / 2;
+  return Math.round(rawCurve(t));
 }
 
 function buildModel() {
@@ -331,6 +355,7 @@ function updateStats() {
   $("#riseDimension").textContent = `${state.rise} block rise`;
   $("#spanOutput").textContent = `${state.span} blocks`;
   $("#riseOutput").textContent = `${state.rise} blocks`;
+  updatePointControls();
 }
 
 function drawProfile() {
@@ -366,6 +391,123 @@ function drawProfile() {
   ctx.strokeStyle = "#e6a45d";
   ctx.lineWidth = 1.5;
   ctx.stroke();
+}
+
+function editorMetrics() {
+  const editor = $("#curveEditor");
+  const pad = { left: 34, right: 24, top: 48, bottom: 30 };
+  return {
+    width: editor.clientWidth,
+    height: editor.clientHeight,
+    pad,
+    plotWidth: Math.max(1, editor.clientWidth - pad.left - pad.right),
+    plotHeight: Math.max(1, editor.clientHeight - pad.top - pad.bottom),
+  };
+}
+
+function editorPosition(point, metrics = editorMetrics()) {
+  return {
+    x: metrics.pad.left + point.t * metrics.plotWidth,
+    y: metrics.pad.top + (1 - point.h / 1.4) * metrics.plotHeight,
+  };
+}
+
+function drawCustomEditor() {
+  const editor = $("#curveEditor");
+  if (state.curve !== "custom" || editor.hidden) return;
+  const canvas = $("#curveEditorCanvas");
+  const metrics = editorMetrics();
+  const dpr = Math.min(devicePixelRatio || 1, 2);
+  canvas.width = metrics.width * dpr;
+  canvas.height = metrics.height * dpr;
+  const ctx = canvas.getContext("2d");
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, metrics.width, metrics.height);
+
+  ctx.strokeStyle = "rgba(236,233,223,.075)";
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= 8; i++) {
+    const x = metrics.pad.left + (i / 8) * metrics.plotWidth;
+    ctx.beginPath(); ctx.moveTo(x, metrics.pad.top); ctx.lineTo(x, metrics.height - metrics.pad.bottom); ctx.stroke();
+  }
+  for (let i = 0; i <= 7; i++) {
+    const y = metrics.pad.top + (i / 7) * metrics.plotHeight;
+    ctx.beginPath(); ctx.moveTo(metrics.pad.left, y); ctx.lineTo(metrics.width - metrics.pad.right, y); ctx.stroke();
+  }
+  ctx.fillStyle = "rgba(236,233,223,.32)";
+  ctx.font = "9px ui-monospace, monospace";
+  ctx.fillText("0", metrics.pad.left - 3, metrics.height - 11);
+  ctx.fillText(`${state.span} blocks`, metrics.width - metrics.pad.right - 44, metrics.height - 11);
+  ctx.fillText(`${Math.round(state.rise * 1.4)}`, 9, metrics.pad.top + 3);
+
+  ctx.beginPath();
+  for (let i = 0; i <= 160; i++) {
+    const t = i / 160;
+    const p = editorPosition({ t, h: rawCurve(t) / state.rise }, metrics);
+    i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y);
+  }
+  ctx.lineTo(metrics.width - metrics.pad.right, metrics.height - metrics.pad.bottom);
+  ctx.lineTo(metrics.pad.left, metrics.height - metrics.pad.bottom);
+  ctx.closePath();
+  const fill = ctx.createLinearGradient(0, metrics.pad.top, 0, metrics.height);
+  fill.addColorStop(0, "rgba(230,164,93,.28)");
+  fill.addColorStop(1, "rgba(230,164,93,.015)");
+  ctx.fillStyle = fill;
+  ctx.fill();
+  ctx.beginPath();
+  for (let i = 0; i <= 160; i++) {
+    const t = i / 160;
+    const p = editorPosition({ t, h: rawCurve(t) / state.rise }, metrics);
+    i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y);
+  }
+  ctx.strokeStyle = "#e6a45d";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  const handles = $("#curveHandles");
+  handles.innerHTML = "";
+  state.customPoints.forEach((point, index) => {
+    const position = editorPosition(point, metrics);
+    const handle = document.createElement("button");
+    handle.className = `curve-handle${index === state.selectedPoint ? " selected" : ""}${index === 0 || index === state.customPoints.length - 1 ? " endpoint" : ""}`;
+    handle.style.left = `${position.x}px`;
+    handle.style.top = `${position.y}px`;
+    handle.dataset.index = index;
+    handle.setAttribute("aria-label", `Control point ${index + 1}`);
+    handles.appendChild(handle);
+  });
+}
+
+function updatePointControls() {
+  const custom = state.curve === "custom";
+  $("#customControls").hidden = !custom;
+  $("#curveEditor").hidden = !custom;
+  if (!custom) return;
+  const point = state.customPoints[state.selectedPoint];
+  const endpoint = state.selectedPoint === 0 || state.selectedPoint === state.customPoints.length - 1;
+  $("#pointLabel").textContent = endpoint ? "Anchored endpoint" : `Point ${state.selectedPoint} of ${state.customPoints.length - 2}`;
+  $("#pointX").value = Math.round(point.t * 100);
+  $("#pointY").value = Math.round(point.h * 100);
+  $("#pointXOutput").textContent = `${Math.round(point.t * 100)}%`;
+  $("#pointYOutput").textContent = `${Math.round(point.h * state.rise)} blocks`;
+  $("#pointX").disabled = endpoint;
+  $("#pointY").disabled = endpoint;
+  $("#removePoint").disabled = endpoint || state.customPoints.length <= 3;
+  drawCustomEditor();
+}
+
+function updateSelectedPoint(axis, value) {
+  const index = state.selectedPoint;
+  if (index === 0 || index === state.customPoints.length - 1) return;
+  const point = state.customPoints[index];
+  if (axis === "t") {
+    const previous = state.customPoints[index - 1].t + .02;
+    const next = state.customPoints[index + 1].t - .02;
+    point.t = Math.max(previous, Math.min(next, value));
+  } else {
+    point.h = Math.max(0, Math.min(1.4, value));
+  }
+  buildModel();
 }
 
 function setView(view) {
@@ -409,13 +551,14 @@ function bindControls() {
       buildModel();
     });
   });
-  ["stepping", "railings"].forEach((id) => $(`#${id}`).addEventListener("change", (e) => {
+  ["railings"].forEach((id) => $(`#${id}`).addEventListener("change", (e) => {
     state[id] = e.target.checked;
     buildModel();
   }));
   $$(".segmented button").forEach((button) => button.addEventListener("click", () => {
     state.curve = button.dataset.value;
     $$(".segmented button").forEach((b) => b.classList.toggle("active", b === button));
+    if (state.curve === "custom") setView("elevation");
     buildModel();
   }));
   $$(".stepper button").forEach((button) => button.addEventListener("click", () => {
@@ -437,6 +580,28 @@ function bindControls() {
   $$(".tab").forEach((button) => button.addEventListener("click", () => setView(button.dataset.view)));
   $("#resetView").addEventListener("click", () => setView("perspective"));
   $("#exportPlan").addEventListener("click", exportPlan);
+  $("#pointX").addEventListener("input", (event) => updateSelectedPoint("t", Number(event.target.value) / 100));
+  $("#pointY").addEventListener("input", (event) => updateSelectedPoint("h", Number(event.target.value) / 100));
+  $("#addPoint").addEventListener("click", () => {
+    let gapIndex = 0;
+    let largestGap = 0;
+    state.customPoints.slice(0, -1).forEach((point, index) => {
+      const gap = state.customPoints[index + 1].t - point.t;
+      if (gap > largestGap) { largestGap = gap; gapIndex = index; }
+    });
+    const left = state.customPoints[gapIndex];
+    const right = state.customPoints[gapIndex + 1];
+    state.customPoints.splice(gapIndex + 1, 0, { t: (left.t + right.t) / 2, h: (left.h + right.h) / 2 });
+    state.selectedPoint = gapIndex + 1;
+    buildModel();
+  });
+  $("#removePoint").addEventListener("click", () => {
+    const index = state.selectedPoint;
+    if (index === 0 || index === state.customPoints.length - 1 || state.customPoints.length <= 3) return;
+    state.customPoints.splice(index, 1);
+    state.selectedPoint = Math.max(1, index - 1);
+    buildModel();
+  });
   $("#randomize").addEventListener("click", () => {
     const curves = ["parabolic", "catenary", "circular"];
     state.curve = curves[Math.floor(Math.random() * curves.length)];
@@ -469,7 +634,44 @@ function bindControls() {
     state.zoom = Math.max(12, Math.min(150, state.zoom * Math.exp(e.deltaY * .001)));
     scheduleRender();
   }, { passive: false });
-  window.addEventListener("resize", () => { drawProfile(); scheduleRender(); });
+  const editor = $("#curveEditor");
+  let draggingPoint = false;
+  const moveEditorPoint = (event) => {
+    if (!draggingPoint) return;
+    const metrics = editorMetrics();
+    const rect = editor.getBoundingClientRect();
+    const t = (event.clientX - rect.left - metrics.pad.left) / metrics.plotWidth;
+    const h = 1.4 * (1 - (event.clientY - rect.top - metrics.pad.top) / metrics.plotHeight);
+    const index = state.selectedPoint;
+    const point = state.customPoints[index];
+    point.t = Math.max(state.customPoints[index - 1].t + .02, Math.min(state.customPoints[index + 1].t - .02, t));
+    point.h = Math.max(0, Math.min(1.4, h));
+    buildModel();
+  };
+  $("#curveHandles").addEventListener("pointerdown", (event) => {
+    const handle = event.target.closest(".curve-handle");
+    if (!handle) return;
+    state.selectedPoint = Number(handle.dataset.index);
+    updatePointControls();
+    if (state.selectedPoint === 0 || state.selectedPoint === state.customPoints.length - 1) return;
+    draggingPoint = true;
+    event.preventDefault();
+  });
+  window.addEventListener("pointermove", moveEditorPoint);
+  window.addEventListener("pointerup", () => draggingPoint = false);
+  window.addEventListener("pointercancel", () => draggingPoint = false);
+  editor.addEventListener("dblclick", (event) => {
+    if (event.target.closest(".curve-handle")) return;
+    const metrics = editorMetrics();
+    const rect = editor.getBoundingClientRect();
+    const t = Math.max(.02, Math.min(.98, (event.clientX - rect.left - metrics.pad.left) / metrics.plotWidth));
+    const h = Math.max(0, Math.min(1.4, 1.4 * (1 - (event.clientY - rect.top - metrics.pad.top) / metrics.plotHeight)));
+    const insertAt = state.customPoints.findIndex((point) => point.t > t);
+    state.customPoints.splice(insertAt, 0, { t, h });
+    state.selectedPoint = insertAt;
+    buildModel();
+  });
+  window.addEventListener("resize", () => { drawProfile(); drawCustomEditor(); scheduleRender(); });
 }
 
 initWebGL();

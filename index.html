@@ -52,6 +52,7 @@
               <button class="active" data-value="parabolic">Parabolic</button>
               <button data-value="catenary">Catenary</button>
               <button data-value="circular">Circular</button>
+              <button data-value="custom">Custom</button>
             </div>
           </div>
 
@@ -92,16 +93,30 @@
             </div>
           </div>
 
-          <div class="control-group">
-            <div class="control-label">
+          <div class="control-group custom-controls" id="customControls" hidden>
+            <div class="custom-heading">
               <div>
-                <label for="stepping">Voxel stepping</label>
-                <p>Snap the curve to buildable block runs.</p>
+                <label>Selected point</label>
+                <p id="pointLabel">Crown point</p>
               </div>
-              <label class="switch">
-                <input id="stepping" type="checkbox" checked />
-                <span></span>
-              </label>
+              <div class="point-actions">
+                <button id="addPoint" title="Add control point">+</button>
+                <button id="removePoint" title="Remove selected point">−</button>
+              </div>
+            </div>
+            <div class="axis-control">
+              <div class="control-label">
+                <label for="pointX">Across span</label>
+                <output id="pointXOutput">50%</output>
+              </div>
+              <input id="pointX" type="range" min="1" max="99" value="50" />
+            </div>
+            <div class="axis-control">
+              <div class="control-label">
+                <label for="pointY">Height</label>
+                <output id="pointYOutput">100%</output>
+              </div>
+              <input id="pointY" type="range" min="0" max="140" value="100" />
             </div>
           </div>
 
@@ -137,6 +152,14 @@
 
         <section class="viewport-wrap" aria-label="3D bridge preview">
           <canvas id="glCanvas"></canvas>
+          <div class="curve-editor" id="curveEditor" hidden>
+            <div class="editor-title">
+              <span>Custom elevation</span>
+              <small>Drag points · Double-click to add</small>
+            </div>
+            <canvas id="curveEditorCanvas"></canvas>
+            <div id="curveHandles"></div>
+          </div>
           <div class="viewport-fade"></div>
           <div class="viewport-info">
             <div class="axis-key">

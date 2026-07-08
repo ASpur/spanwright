@@ -1,0 +1,13 @@
+{
+  "name": "spanwright",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A browser-based voxel bridge designer for Minecraft and other block-building games.",
+  "scripts": {
+    "dev": "npx serve .",
+    "check": "node --check app.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

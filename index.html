@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#171a16" />
+    <meta
+      name="description"
+      content="Shape arches, tune dimensions, and turn bridge curves into buildable voxel plans."
+    />
+    <title>Spanwright — Voxel Bridge Designer</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="#" aria-label="Spanwright home">
+          <span class="brand-mark" aria-hidden="true">
+            <i></i><i></i><i></i><i></i><i></i>
+          </span>
+          <span>
+            <strong>Spanwright</strong>
+            <small>Voxel bridge designer</small>
+          </span>
+        </a>
+
+        <nav class="view-tabs" aria-label="Workspace view">
+          <button class="tab active" data-view="perspective">Perspective</button>
+          <button class="tab" data-view="elevation">Elevation</button>
+          <button class="tab" data-view="plan">Plan</button>
+        </nav>
+
+        <div class="top-actions">
+          <button class="button ghost" id="resetView">Reset view</button>
+          <button class="button primary" id="exportPlan">Export plan</button>
+        </div>
+      </header>
+
+      <main>
+        <aside class="panel controls-panel">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Geometry</p>
+              <h1>Shape the span</h1>
+            </div>
+            <button class="icon-button" id="randomize" title="Try another shape" aria-label="Try another shape">↻</button>
+          </div>
+
+          <div class="control-group">
+            <label for="curveType">Curve profile</label>
+            <div class="segmented" id="curveType">
+              <button class="active" data-value="parabolic">Parabolic</button>
+              <button data-value="catenary">Catenary</button>
+              <button data-value="circular">Circular</button>
+            </div>
+          </div>
+
+          <div class="control-group range-control">
+            <div class="control-label">
+              <label for="span">Span</label>
+              <output id="spanOutput">32 blocks</output>
+            </div>
+            <input id="span" type="range" min="12" max="80" value="32" step="1" />
+            <div class="range-ends"><span>12</span><span>80</span></div>
+          </div>
+
+          <div class="control-group range-control">
+            <div class="control-label">
+              <label for="rise">Rise</label>
+              <output id="riseOutput">10 blocks</output>
+            </div>
+            <input id="rise" type="range" min="2" max="28" value="10" step="1" />
+            <div class="range-ends"><span>2</span><span>28</span></div>
+          </div>
+
+          <div class="two-up">
+            <div class="control-group compact">
+              <label for="width">Deck width</label>
+              <div class="stepper">
+                <button data-step="-1" data-target="width" aria-label="Decrease deck width">−</button>
+                <input id="width" type="number" min="1" max="15" value="5" readonly />
+                <button data-step="1" data-target="width" aria-label="Increase deck width">+</button>
+              </div>
+            </div>
+            <div class="control-group compact">
+              <label for="thickness">Thickness</label>
+              <div class="stepper">
+                <button data-step="-1" data-target="thickness" aria-label="Decrease thickness">−</button>
+                <input id="thickness" type="number" min="1" max="6" value="2" readonly />
+                <button data-step="1" data-target="thickness" aria-label="Increase thickness">+</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="control-group">
+            <div class="control-label">
+              <div>
+                <label for="stepping">Voxel stepping</label>
+                <p>Snap the curve to buildable block runs.</p>
+              </div>
+              <label class="switch">
+                <input id="stepping" type="checkbox" checked />
+                <span></span>
+              </label>
+            </div>
+          </div>
+
+          <div class="control-group">
+            <div class="control-label">
+              <div>
+                <label for="railings">Edge railings</label>
+                <p>Add a one-block safety edge.</p>
+              </div>
+              <label class="switch">
+                <input id="railings" type="checkbox" checked />
+                <span></span>
+              </label>
+            </div>
+          </div>
+
+          <div class="control-group material-control">
+            <label>Material palette</label>
+            <div class="swatches" role="radiogroup" aria-label="Bridge material">
+              <button class="swatch active" data-material="sandstone" style="--swatch:#d49b55" aria-label="Warm sandstone"></button>
+              <button class="swatch" data-material="stone" style="--swatch:#88928d" aria-label="Stone"></button>
+              <button class="swatch" data-material="deepslate" style="--swatch:#4d5556" aria-label="Deepslate"></button>
+              <button class="swatch" data-material="brick" style="--swatch:#a95742" aria-label="Brick"></button>
+              <button class="swatch" data-material="prismarine" style="--swatch:#5f9f8d" aria-label="Prismarine"></button>
+            </div>
+          </div>
+
+          <div class="tip">
+            <span>✦</span>
+            <p><strong>Build tip</strong> Odd deck widths keep the centerline aligned to whole blocks.</p>
+          </div>
+        </aside>
+
+        <section class="viewport-wrap" aria-label="3D bridge preview">
+          <canvas id="glCanvas"></canvas>
+          <div class="viewport-fade"></div>
+          <div class="viewport-info">
+            <div class="axis-key">
+              <span class="axis x">X</span>
+              <span class="axis y">Y</span>
+              <span class="axis z">Z</span>
+            </div>
+            <div class="interaction-hint">Drag to orbit · Scroll to zoom</div>
+          </div>
+          <div class="dimension span-dimension">
+            <i></i><span id="spanDimension">32 block span</span><i></i>
+          </div>
+          <div class="dimension rise-dimension">
+            <i></i><span id="riseDimension">10 block rise</span><i></i>
+          </div>
+          <div class="webgl-error" id="webglError" hidden>
+            WebGL is unavailable in this browser.
+          </div>
+        </section>
+
+        <aside class="panel stats-panel">
+          <p class="eyebrow">Build summary</p>
+          <h2>Your bridge</h2>
+
+          <div class="hero-stat">
+            <span id="blockCount">—</span>
+            <small>total blocks</small>
+          </div>
+
+          <div class="stat-grid">
+            <div><span id="footprintStat">—</span><small>footprint</small></div>
+            <div><span id="heightStat">—</span><small>max height</small></div>
+            <div><span id="slopeStat">—</span><small>steepest run</small></div>
+            <div><span id="layersStat">—</span><small>build layers</small></div>
+          </div>
+
+          <div class="profile-card">
+            <div class="card-heading">
+              <span>Elevation profile</span>
+              <small id="profileName">Parabolic</small>
+            </div>
+            <canvas id="profileCanvas" width="280" height="112"></canvas>
+          </div>
+
+          <div class="legend">
+            <div><i class="legend-block primary-block"></i><span>Structure</span><strong id="structureCount">—</strong></div>
+            <div><i class="legend-block railing-block"></i><span>Railings</span><strong id="railingCount">—</strong></div>
+          </div>
+
+          <div class="build-note">
+            <span>01</span>
+            <p>Start from both banks and meet at the crown. Mirrored steps make errors easier to spot.</p>
+          </div>
+        </aside>
+      </main>
+    </div>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

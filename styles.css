@@ -119,6 +119,7 @@ input[type="range"] { width: 100%; margin: 16px 0 0; accent-color: var(--accent)
 .span-dimension { left: 50%; bottom: 64px; transform: translateX(-50%); }
 .rise-dimension { top: 46%; right: 30px; transform: rotate(-90deg); }
 .webgl-error { position: absolute; inset: 0; display: grid; place-items: center; background: #151914; }
+.webgl-error[hidden] { display: none; }
 
 .stats-panel > h2 { margin-bottom: 20px; }
 .hero-stat { padding: 19px 0 21px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }

@@ -5,9 +5,15 @@
   "description": "A browser-based voxel bridge designer for Minecraft and other block-building games.",
   "scripts": {
     "dev": "npx serve .",
-    "check": "node --check app.js"
+    "build": "node scripts/build.mjs",
+    "check": "node --check app.js",
+    "deploy": "wrangler deploy",
+    "preview": "wrangler dev"
   },
   "engines": {
     "node": ">=20"
+  },
+  "devDependencies": {
+    "wrangler": "4.107.1"
   }
 }

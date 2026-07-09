@@ -15,7 +15,7 @@ Spanwright is a browser-based bridge planner for Minecraft and other voxel build
 - Orbit, elevation, and plan views
 - Live block counts, footprint, height, and elevation profile
 - JSON plan export organized by build layer
-- No runtime dependencies or build step
+- No runtime dependencies
 
 ## Run locally
 
@@ -27,16 +27,18 @@ npx serve .
 
 Then open the local address shown in the terminal.
 
-## Deploy to Cloudflare Pages
+## Deploy to Cloudflare
 
-This repository includes a GitHub Actions workflow for automatic Cloudflare Pages deployments. Every push to `main` publishes the static site.
+This repository is configured for Cloudflare's Git integration. The build copies the public site into `dist/`, and Wrangler deploys only that directory as static assets.
 
-Create a Cloudflare Pages project named `spanwright`, then add these repository secrets in GitHub:
+Connect the GitHub repository from **Workers & Pages** in the Cloudflare dashboard, then use:
 
-- `CLOUDFLARE_API_TOKEN`: a Cloudflare API token with Pages edit permission
-- `CLOUDFLARE_ACCOUNT_ID`: your Cloudflare account ID
+- Production branch: `main`
+- Build command: `npm run build`
+- Deploy command: `npm run deploy`
+- Root directory: leave blank
 
-Alternatively, connect the GitHub repository directly from the Cloudflare Pages dashboard. Use `/` as the root directory and leave the build command blank.
+No GitHub Actions secrets are required. Every push to `main` builds and deploys the site through Cloudflare.
 
 ## AI-assisted design notice
 

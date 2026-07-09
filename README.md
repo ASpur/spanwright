@@ -1,6 +1,6 @@
 # Spanwright
 
-Spanwright is a browser-based bridge planner for Minecraft and other voxel building games. Shape a bridge curve, tune its rise, width, and thickness, then inspect the result as a buildable block model in WebGL.
+Spanwright is a browser-based bridge planner for Minecraft and other voxel building games. Shape a bridge curve, tune its span, height scale, width, and thickness, then inspect the result as a buildable block model in WebGL.
 
 ## Features
 
@@ -10,7 +10,7 @@ Spanwright is a browser-based bridge planner for Minecraft and other voxel build
 - Global rotation for voxelized diagonal bridges
 - Optional mirrored curve editing
 - Point reordering, targeted deletion, and undo with Command/Ctrl+Z
-- Adjustable span, rise, deck width, and structural thickness
+- Exact span and height-scale entry, plus adjustable deck width and structural thickness
 - Buildable voxel stepping and optional edge railings
 - Orbital, orthographic, and 1st person views
 - Live block counts, footprint, height, and elevation profile

@@ -37,16 +37,8 @@
         </div>
       </header>
 
-      <main>
+      <main id="workspace">
         <aside class="panel controls-panel">
-          <div class="panel-heading">
-            <div>
-              <p class="eyebrow">Geometry</p>
-              <h1>Shape the span</h1>
-            </div>
-            <button class="icon-button" id="randomize" title="Try another shape" aria-label="Try another shape">↻</button>
-          </div>
-
           <div class="control-group">
             <label for="curveType">Curve profile</label>
             <div class="segmented" id="curveType">
@@ -59,20 +51,27 @@
 
           <div class="control-group range-control">
             <div class="control-label">
-              <label for="span">Span</label>
-              <output id="spanOutput">32 blocks</output>
+              <label for="span">Span length</label>
+              <div class="exact-value">
+                <input id="spanValue" type="number" min="1" max="256" value="32" step="1" aria-label="Span length in blocks" />
+                <span>blocks</span>
+              </div>
             </div>
-            <input id="span" type="range" min="12" max="80" value="32" step="1" />
-            <div class="range-ends"><span>12</span><span>80</span></div>
+            <input id="span" type="range" min="1" max="256" value="32" step="1" />
+            <div class="range-ends"><span>1</span><span>256</span></div>
           </div>
 
           <div class="control-group range-control">
             <div class="control-label">
-              <label for="rise">Rise</label>
-              <output id="riseOutput">10 blocks</output>
+              <label for="rise">Height scale</label>
+              <div class="exact-value">
+                <input id="riseValue" type="number" min="1" max="96" value="10" step="1" aria-label="Height scale in blocks" />
+                <span>blocks</span>
+              </div>
             </div>
-            <input id="rise" type="range" min="2" max="28" value="10" step="1" />
-            <div class="range-ends"><span>2</span><span>28</span></div>
+            <input id="rise" type="range" min="1" max="96" value="10" step="1" />
+            <div class="range-ends"><span>1</span><span>96</span></div>
+            <p class="control-help">Actual rise: <output id="riseOutput">10 blocks</output></p>
           </div>
 
           <div class="two-up">
@@ -193,38 +192,49 @@
           </div>
         </section>
 
-        <aside class="panel stats-panel">
-          <p class="eyebrow">Build summary</p>
-          <h2>Your bridge</h2>
+        <aside class="panel stats-panel" id="buildSummaryPanel">
+          <button class="summary-edge-toggle" id="summaryPanelToggle" type="button" aria-expanded="true" aria-controls="summaryPanelContent" aria-label="Collapse build summary">
+            <i aria-hidden="true">›</i>
+          </button>
+          <div class="summary-collapsed-label" aria-hidden="true">Build summary</div>
 
-          <div class="hero-stat">
-            <span id="blockCount">—</span>
-            <small>total blocks</small>
-          </div>
-
-          <div class="stat-grid">
-            <div><span id="footprintStat">—</span><small>footprint</small></div>
-            <div><span id="heightStat">—</span><small>max height</small></div>
-            <div><span id="slopeStat">—</span><small>steepest run</small></div>
-            <div><span id="layersStat">—</span><small>build layers</small></div>
-          </div>
-
-          <div class="profile-card">
-            <div class="card-heading">
-              <span>Elevation profile</span>
-              <small id="profileName">Parabolic</small>
+          <div class="summary-content" id="summaryPanelContent">
+            <div class="summary-heading">
+              <div>
+                <p class="eyebrow">Build summary</p>
+                <h2>Your bridge</h2>
+              </div>
             </div>
-            <canvas id="profileCanvas" width="280" height="112"></canvas>
-          </div>
 
-          <div class="legend">
-            <div><i class="legend-block primary-block"></i><span>Structure</span><strong id="structureCount">—</strong></div>
-            <div><i class="legend-block railing-block"></i><span>Railings</span><strong id="railingCount">—</strong></div>
-          </div>
+            <div class="hero-stat">
+              <span id="blockCount">—</span>
+              <small>total blocks</small>
+            </div>
 
-          <div class="build-note">
-            <span>01</span>
-            <p>Start from both banks and meet at the crown. Mirrored steps make errors easier to spot.</p>
+            <div class="stat-grid">
+              <div><span id="footprintStat">—</span><small>footprint</small></div>
+              <div><span id="heightStat">—</span><small>max height</small></div>
+              <div><span id="slopeStat">—</span><small>steepest run</small></div>
+              <div><span id="layersStat">—</span><small>build layers</small></div>
+            </div>
+
+            <div class="profile-card">
+              <div class="card-heading">
+                <span>Elevation profile</span>
+                <small id="profileName">Parabolic</small>
+              </div>
+              <canvas id="profileCanvas" width="280" height="112"></canvas>
+            </div>
+
+            <div class="legend">
+              <div><i class="legend-block primary-block"></i><span>Structure</span><strong id="structureCount">—</strong></div>
+              <div><i class="legend-block railing-block"></i><span>Railings</span><strong id="railingCount">—</strong></div>
+            </div>
+
+            <div class="build-note">
+              <span>01</span>
+              <p>Start from both banks and meet at the crown. Mirrored steps make errors easier to spot.</p>
+            </div>
           </div>
         </aside>
       </main>

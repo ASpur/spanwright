@@ -94,6 +94,8 @@ function syncControls() {
   ["span", "rise", "width", "thickness", "rotation"].forEach((id) => {
     $(`#${id}`).value = state[id];
   });
+  $("#spanValue").value = state.span;
+  $("#riseValue").value = state.rise;
   $("#railings").checked = state.railings;
   $("#symmetry").checked = state.symmetry;
   $$(".segmented button").forEach((button) => button.classList.toggle("active", button.dataset.value === state.curve));
@@ -144,6 +146,20 @@ function rawCurve(t) {
 
 function curveHeight(t) {
   return Math.round(rawCurve(t));
+}
+
+function deckHeights() {
+  return Array.from({ length: state.span + 1 }, (_, i) => curveHeight(i / state.span));
+}
+
+function heightRange(heights = deckHeights()) {
+  const min = Math.min(...heights);
+  const max = Math.max(...heights);
+  return { min, max, rise: max - min };
+}
+
+function blockLabel(value) {
+  return `${value} block${Math.abs(value) === 1 ? "" : "s"}`;
 }
 
 function bridgeAngle() {
@@ -475,9 +491,10 @@ function render(time) {
     ];
     target = state.target;
   }
+  const farPlane = Math.max(300, state.zoom * 3, state.span * 3, state.rise * 4);
   const projection = state.viewMode === "orthographic"
-    ? mat4.orthographic(-state.zoom * aspect / 2, state.zoom * aspect / 2, -state.zoom / 2, state.zoom / 2, .1, 400)
-    : mat4.perspective(Math.PI / 4.2, aspect, .1, 300);
+    ? mat4.orthographic(-state.zoom * aspect / 2, state.zoom * aspect / 2, -state.zoom / 2, state.zoom / 2, .1, farPlane)
+    : mat4.perspective(Math.PI / 4.2, aspect, .1, farPlane);
   const view = mat4.lookAt(eye, target, [0, 1, 0]);
   lastViewProjection = mat4.multiply(projection, view);
   gl.uniformMatrix4fv(matrixLocation, false, new Float32Array(lastViewProjection));
@@ -502,7 +519,8 @@ function scheduleRender() {
 }
 
 function updateStats() {
-  const heights = Array.from({ length: state.span + 1 }, (_, i) => curveHeight(i / state.span));
+  const heights = deckHeights();
+  const range = heightRange(heights);
   const maxStep = Math.max(...heights.slice(1).map((h, i) => Math.abs(h - heights[i])));
   const xs = blocks.map((block) => block.x);
   const zs = blocks.map((block) => block.z);
@@ -515,9 +533,10 @@ function updateStats() {
   $("#layersStat").textContent = `${Math.max(...blocks.map((b) => b.y)) - Math.min(...blocks.map((b) => b.y)) + 1}`;
   $("#profileName").textContent = state.curve[0].toUpperCase() + state.curve.slice(1);
   $("#spanDimension").textContent = `${state.span} block span`;
-  $("#riseDimension").textContent = `${state.rise} block rise`;
-  $("#spanOutput").textContent = `${state.span} blocks`;
-  $("#riseOutput").textContent = `${state.rise} blocks`;
+  $("#riseDimension").textContent = `${blockLabel(range.rise)} rise`;
+  $("#spanValue").value = state.span;
+  $("#riseValue").value = state.rise;
+  $("#riseOutput").textContent = blockLabel(range.rise);
   $("#rotationOutput").textContent = `${state.rotation}°`;
   updatePointControls();
 }
@@ -536,9 +555,12 @@ function drawProfile() {
   ctx.strokeStyle = "rgba(236,233,223,.08)";
   ctx.lineWidth = 1;
   for (let y = 12; y < h; y += 22) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(w,y); ctx.stroke(); }
-  const points = Array.from({ length: state.span + 1 }, (_, i) => ({
+  const heights = deckHeights();
+  const range = heightRange(heights);
+  const profileRange = Math.max(1, range.rise);
+  const points = heights.map((height, i) => ({
     x: 6 + (i / state.span) * (w - 12),
-    y: h - 10 - (curveHeight(i / state.span) / Math.max(1,state.rise)) * (h - 28),
+    y: h - 10 - ((height - range.min) / profileRange) * (h - 28),
   }));
   ctx.beginPath();
   points.forEach((p, i) => i ? ctx.lineTo(p.x,p.y) : ctx.moveTo(p.x,p.y));
@@ -759,16 +781,44 @@ function exportPlan() {
   URL.revokeObjectURL(link.href);
 }
 
+function applySpanOrScale(id, value) {
+  const control = $(`#${id}`);
+  const min = Number(control.min);
+  const max = Number(control.max);
+  const next = Math.round(Math.max(min, Math.min(max, value)));
+  if (!Number.isFinite(next)) return false;
+  state[id] = next;
+  control.value = next;
+  $(`#${id}Value`).value = next;
+  if (id === "span") state.zoom = Math.max(48, state.span * 1.45);
+  state.target[1] = state.rise / 2 - 1;
+  return true;
+}
+
 function bindControls() {
   ["span", "rise"].forEach((id) => {
-    $(`#${id}`).addEventListener("pointerdown", beginHistoryTransaction);
-    $(`#${id}`).addEventListener("pointerup", endHistoryTransaction);
-    $(`#${id}`).addEventListener("input", (event) => {
+    const slider = $(`#${id}`);
+    const exactInput = $(`#${id}Value`);
+    const updateDimension = (value) => {
+      if (!Number.isFinite(value)) return;
       if (!historyTransaction) pushHistory();
-      state[id] = Number(event.target.value);
-      if (id === "span") state.zoom = Math.max(48, state.span * 1.45);
-      state.target[1] = state.rise / 2 - 1;
-      buildModel();
+      if (applySpanOrScale(id, value)) buildModel();
+    };
+    slider.addEventListener("pointerdown", beginHistoryTransaction);
+    slider.addEventListener("pointerup", endHistoryTransaction);
+    slider.addEventListener("input", (event) => updateDimension(Number(event.target.value)));
+    exactInput.addEventListener("focus", beginHistoryTransaction);
+    exactInput.addEventListener("input", (event) => {
+      if (event.target.value === "") return;
+      updateDimension(Number(event.target.value));
+    });
+    exactInput.addEventListener("change", (event) => {
+      if (event.target.value === "") event.target.value = state[id];
+      else updateDimension(Number(event.target.value));
+    });
+    exactInput.addEventListener("blur", endHistoryTransaction);
+    exactInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") event.target.blur();
     });
   });
   ["railings"].forEach((id) => $(`#${id}`).addEventListener("change", (e) => {
@@ -854,19 +904,21 @@ function bindControls() {
   });
   $("#deletePopupPoint").addEventListener("click", deleteSelectedPoint);
   $("#closePointPopover").addEventListener("click", closePointPopover);
-  $("#randomize").addEventListener("click", () => {
-    pushHistory();
-    const curves = ["parabolic", "catenary", "circular"];
-    state.curve = curves[Math.floor(Math.random() * curves.length)];
-    state.span = 20 + Math.floor(Math.random() * 29);
-    state.rise = 5 + Math.floor(Math.random() * 13);
-    $("#span").value = state.span;
-    $("#rise").value = state.rise;
-    $$(".segmented button").forEach((b) => b.classList.toggle("active", b.dataset.value === state.curve));
-    setView("orbital");
-    buildModel();
+  const setSummaryPanelCollapsed = (collapsed) => {
+    $("#workspace").classList.toggle("summary-collapsed", collapsed);
+    $("#buildSummaryPanel").classList.toggle("collapsed", collapsed);
+    $("#summaryPanelToggle").setAttribute("aria-expanded", String(!collapsed));
+    $("#summaryPanelContent").setAttribute("aria-hidden", String(collapsed));
+    $("#summaryPanelToggle").setAttribute("aria-label", collapsed ? "Expand build summary" : "Collapse build summary");
+    scheduleRender();
+    setTimeout(() => {
+      if (!collapsed) drawProfile();
+      scheduleRender();
+    }, 260);
+  };
+  $("#summaryPanelToggle").addEventListener("click", () => {
+    setSummaryPanelCollapsed(!$("#buildSummaryPanel").classList.contains("collapsed"));
   });
-
   const canvas = $("#glCanvas");
   let dragging = false;
   let lastX = 0;
@@ -890,6 +942,9 @@ function bindControls() {
     state.zoom = Math.max(12, Math.min(150, state.zoom * Math.exp(e.deltaY * .001)));
     scheduleRender();
   }, { passive: false });
+  if ("ResizeObserver" in window) {
+    new ResizeObserver(() => scheduleRender()).observe($(".viewport-wrap"));
+  }
   let draggingPoint = false;
   let dragAxis = "free";
   let lastPointer = { x: 0, y: 0 };

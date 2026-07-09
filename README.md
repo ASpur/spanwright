@@ -12,7 +12,7 @@ Spanwright is a browser-based bridge planner for Minecraft and other voxel build
 - Point reordering, targeted deletion, and undo with Command/Ctrl+Z
 - Adjustable span, rise, deck width, and structural thickness
 - Buildable voxel stepping and optional edge railings
-- Orbit, elevation, and plan views
+- Orbital, orthographic, and 1st person views
 - Live block counts, footprint, height, and elevation profile
 - JSON plan export organized by build layer
 - No runtime dependencies

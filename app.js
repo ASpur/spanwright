@@ -19,6 +19,8 @@ const state = {
     { t: 1, h: 0 },
   ],
   selectedPoint: 2,
+  viewMode: "orbital",
+  firstPersonEye: null,
   yaw: -0.78,
   pitch: 0.48,
   zoom: 54,
@@ -51,6 +53,8 @@ let animationFrame;
 let lastViewProjection;
 let pointPopoverOpen = false;
 let popoverEditRecorded = false;
+const movementKeys = new Set();
+let lastMoveTime = 0;
 const history = [];
 let historyTransaction = false;
 
@@ -154,6 +158,51 @@ function bridgeWorldPosition(t, y, across = 0) {
     y,
     z: along * Math.sin(angle) + across * Math.cos(angle),
   };
+}
+
+function firstPersonStart() {
+  const start = bridgeWorldPosition(0, curveHeight(0) + 2.1, 0);
+  return [start.x, start.y, start.z];
+}
+
+function moveFirstPerson(time = performance.now()) {
+  if (state.viewMode !== "first-person" || movementKeys.size === 0) {
+    lastMoveTime = time;
+    return false;
+  }
+  if (!state.firstPersonEye) state.firstPersonEye = firstPersonStart();
+  const dt = Math.min(.05, Math.max(0, (time - lastMoveTime) / 1000 || 0));
+  lastMoveTime = time;
+  if (!dt) return true;
+
+  const speed = 10;
+  const distance = speed * dt;
+  const forward = [Math.cos(state.yaw), 0, Math.sin(state.yaw)];
+  const right = [-Math.sin(state.yaw), 0, Math.cos(state.yaw)];
+  const delta = [0, 0, 0];
+  if (movementKeys.has("KeyW")) {
+    delta[0] += forward[0];
+    delta[2] += forward[2];
+  }
+  if (movementKeys.has("KeyS")) {
+    delta[0] -= forward[0];
+    delta[2] -= forward[2];
+  }
+  if (movementKeys.has("KeyD")) {
+    delta[0] += right[0];
+    delta[2] += right[2];
+  }
+  if (movementKeys.has("KeyA")) {
+    delta[0] -= right[0];
+    delta[2] -= right[2];
+  }
+  if (movementKeys.has("Space")) delta[1] += 1;
+  if (movementKeys.has("ShiftLeft") || movementKeys.has("ShiftRight")) delta[1] -= 1;
+
+  const length = Math.hypot(...delta);
+  if (length === 0) return true;
+  state.firstPersonEye = state.firstPersonEye.map((value, index) => value + (delta[index] / length) * distance);
+  return true;
 }
 
 function buildModel() {
@@ -363,6 +412,14 @@ const mat4 = {
     const f = 1 / Math.tan(fov / 2);
     return [f/aspect,0,0,0, 0,f,0,0, 0,0,(far+near)/(near-far),-1, 0,0,(2*far*near)/(near-far),0];
   },
+  orthographic(left, right, bottom, top, near, far) {
+    return [
+      2/(right-left),0,0,0,
+      0,2/(top-bottom),0,0,
+      0,0,-2/(far-near),0,
+      -(right+left)/(right-left),-(top+bottom)/(top-bottom),-(far+near)/(far-near),1,
+    ];
+  },
   lookAt(eye, target, up) {
     const normalize = (v) => { const l = Math.hypot(...v); return v.map((x) => x/l); };
     const cross = (a,b) => [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]];
@@ -376,9 +433,10 @@ const mat4 = {
   }
 };
 
-function render() {
+function render(time) {
   animationFrame = null;
   if (!gl) return;
+  moveFirstPerson(time);
   const canvas = gl.canvas;
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   const width = Math.floor(canvas.clientWidth * dpr);
@@ -391,14 +449,36 @@ function render() {
   gl.clearColor(.075, .09, .071, 1);
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
   gl.useProgram(program);
-  const cp = Math.cos(state.pitch);
-  const eye = [
-    state.target[0] + state.zoom * cp * Math.cos(state.yaw),
-    state.target[1] + state.zoom * Math.sin(state.pitch),
-    state.target[2] + state.zoom * cp * Math.sin(state.yaw),
-  ];
-  const projection = mat4.perspective(Math.PI / 4.2, width / height, .1, 300);
-  const view = mat4.lookAt(eye, state.target, [0, 1, 0]);
+  const aspect = width / height;
+  let eye;
+  let target;
+  if (state.viewMode === "first-person") {
+    if (!state.firstPersonEye) state.firstPersonEye = firstPersonStart();
+    const cp = Math.cos(state.pitch);
+    const direction = [
+      cp * Math.cos(state.yaw),
+      Math.sin(state.pitch),
+      cp * Math.sin(state.yaw),
+    ];
+    eye = state.firstPersonEye;
+    target = [
+      eye[0] + direction[0] * 42,
+      eye[1] + direction[1] * 42,
+      eye[2] + direction[2] * 42,
+    ];
+  } else {
+    const cp = Math.cos(state.pitch);
+    eye = [
+      state.target[0] + state.zoom * cp * Math.cos(state.yaw),
+      state.target[1] + state.zoom * Math.sin(state.pitch),
+      state.target[2] + state.zoom * cp * Math.sin(state.yaw),
+    ];
+    target = state.target;
+  }
+  const projection = state.viewMode === "orthographic"
+    ? mat4.orthographic(-state.zoom * aspect / 2, state.zoom * aspect / 2, -state.zoom / 2, state.zoom / 2, .1, 400)
+    : mat4.perspective(Math.PI / 4.2, aspect, .1, 300);
+  const view = mat4.lookAt(eye, target, [0, 1, 0]);
   lastViewProjection = mat4.multiply(projection, view);
   gl.uniformMatrix4fv(matrixLocation, false, new Float32Array(lastViewProjection));
 
@@ -414,6 +494,7 @@ function render() {
   draw(gridPositionBuffer, gridColorBuffer, gl.LINES, gridVertexCount);
   draw(positionBuffer, colorBuffer, gl.TRIANGLES, vertexCount);
   updateWorldHandles();
+  if (state.viewMode === "first-person" && movementKeys.size > 0) scheduleRender();
 }
 
 function scheduleRender() {
@@ -644,14 +725,17 @@ function deleteSelectedPoint() {
 }
 
 function setView(view) {
-  if (view === "elevation") {
-    Object.assign(state, { yaw: -Math.PI / 2, pitch: .04, zoom: Math.max(42, state.span * 1.35), target: [0, state.rise / 2, 0] });
-  } else if (view === "plan") {
-    Object.assign(state, { yaw: -Math.PI / 2, pitch: 1.48, zoom: Math.max(42, state.span * 1.25), target: [0, 2, 0] });
+  if (view === "perspective") view = "orbital";
+  movementKeys.clear();
+  if (view === "orthographic") {
+    Object.assign(state, { viewMode: view, yaw: -.78, pitch: .58, zoom: Math.max(42, state.span * 1.28), target: [0, state.rise / 2 - 1, 0] });
+  } else if (view === "first-person") {
+    Object.assign(state, { viewMode: view, firstPersonEye: firstPersonStart(), yaw: bridgeAngle(), pitch: .08, zoom: Math.max(48, state.span * 1.45), target: [0, state.rise / 2 - 1, 0] });
+    lastMoveTime = performance.now();
   } else {
-    Object.assign(state, { yaw: -.78, pitch: .48, zoom: Math.max(48, state.span * 1.45), target: [0, state.rise / 2 - 1, 0] });
+    Object.assign(state, { viewMode: "orbital", yaw: -.78, pitch: .48, zoom: Math.max(48, state.span * 1.45), target: [0, state.rise / 2 - 1, 0] });
   }
-  $$(".tab").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
+  $$(".tab").forEach((b) => b.classList.toggle("active", b.dataset.view === state.viewMode));
   scheduleRender();
 }
 
@@ -717,7 +801,7 @@ function bindControls() {
     scheduleRender();
   }));
   $$(".tab").forEach((button) => button.addEventListener("click", () => setView(button.dataset.view)));
-  $("#resetView").addEventListener("click", () => setView("perspective"));
+  $("#resetView").addEventListener("click", () => setView("orbital"));
   $("#undoAction").addEventListener("click", undo);
   $("#exportPlan").addEventListener("click", exportPlan);
   ["rotation"].forEach((id) => {
@@ -739,6 +823,7 @@ function bindControls() {
   $("#rotation").addEventListener("input", (event) => {
     if (!historyTransaction) pushHistory();
     state.rotation = Number(event.target.value);
+    if (state.viewMode === "first-person") state.yaw = bridgeAngle();
     buildModel();
   });
   $("#symmetry").addEventListener("change", (event) => {
@@ -778,7 +863,7 @@ function bindControls() {
     $("#span").value = state.span;
     $("#rise").value = state.rise;
     $$(".segmented button").forEach((b) => b.classList.toggle("active", b.dataset.value === state.curve));
-    setView("perspective");
+    setView("orbital");
     buildModel();
   });
 
@@ -792,7 +877,10 @@ function bindControls() {
   canvas.addEventListener("pointermove", (e) => {
     if (!dragging) return;
     state.yaw += (e.clientX - lastX) * .008;
-    state.pitch = Math.max(-1.35, Math.min(1.48, state.pitch + (e.clientY - lastY) * .006));
+    const pitchDelta = (e.clientY - lastY) * .006;
+    state.pitch = state.viewMode === "first-person"
+      ? Math.max(-1.2, Math.min(1.2, state.pitch - pitchDelta))
+      : Math.max(-1.35, Math.min(1.48, state.pitch + pitchDelta));
     lastX = e.clientX; lastY = e.clientY; scheduleRender();
   });
   canvas.addEventListener("pointerup", () => dragging = false);
@@ -872,7 +960,22 @@ function bindControls() {
   };
   window.addEventListener("pointerup", stopWorldDrag);
   window.addEventListener("pointercancel", stopWorldDrag);
+  const firstPersonMovementCodes = new Set(["KeyW", "KeyA", "KeyS", "KeyD", "Space", "ShiftLeft", "ShiftRight"]);
+  const isEditingText = (target) => target.matches("input, textarea, select, [contenteditable='true']");
   document.addEventListener("keydown", (event) => {
+    if (state.viewMode === "first-person"
+      && firstPersonMovementCodes.has(event.code)
+      && !event.metaKey
+      && !event.ctrlKey
+      && !event.altKey
+      && !isEditingText(event.target)
+    ) {
+      event.preventDefault();
+      movementKeys.add(event.code);
+      lastMoveTime = performance.now();
+      scheduleRender();
+      return;
+    }
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
       event.preventDefault();
       undo();
@@ -885,10 +988,15 @@ function bindControls() {
     }
     if (event.key === "Escape") closePointPopover();
   });
+  document.addEventListener("keyup", (event) => {
+    if (!firstPersonMovementCodes.has(event.code)) return;
+    movementKeys.delete(event.code);
+  });
+  window.addEventListener("blur", () => movementKeys.clear());
   window.addEventListener("resize", () => { drawProfile(); scheduleRender(); });
 }
 
 initWebGL();
 bindControls();
 buildModel();
-setView("perspective");
+setView("orbital");

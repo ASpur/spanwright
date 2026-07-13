@@ -116,9 +116,9 @@ function undo() {
 function rawCurve(t) {
   if (state.curve === "custom") {
     const points = state.customPoints;
+    if (t <= points[0].t) return points[0].h * state.rise;
+    if (t >= points[points.length - 1].t) return points[points.length - 1].h * state.rise;
     let index = points.findIndex((point) => point.t >= t);
-    if (index <= 0) return points[0].h * state.rise;
-    if (index < 0) return points[points.length - 1].h * state.rise;
     const p1 = points[index - 1];
     const p2 = points[index];
     const p0 = points[Math.max(0, index - 2)];
@@ -148,8 +148,17 @@ function curveHeight(t) {
   return Math.round(rawCurve(t));
 }
 
+function spanDistance() {
+  return Math.max(0, state.span - 1);
+}
+
+function bridgeSampleT(index) {
+  const distance = spanDistance();
+  return distance === 0 ? 0 : index / distance;
+}
+
 function deckHeights() {
-  return Array.from({ length: state.span + 1 }, (_, i) => curveHeight(i / state.span));
+  return Array.from({ length: state.span }, (_, i) => curveHeight(bridgeSampleT(i)));
 }
 
 function heightRange(heights = deckHeights()) {
@@ -168,7 +177,8 @@ function bridgeAngle() {
 
 function bridgeWorldPosition(t, y, across = 0) {
   const angle = bridgeAngle();
-  const along = t * state.span - state.span / 2;
+  const distance = spanDistance();
+  const along = t * distance - Math.floor(distance / 2);
   return {
     x: along * Math.cos(angle) - across * Math.sin(angle),
     y,
@@ -234,17 +244,18 @@ function buildModel() {
     else structureCount++;
   };
 
-  for (let i = 0; i <= state.span; i++) {
-    const y = curveHeight(i / state.span);
+  for (let i = 0; i < state.span; i++) {
+    const t = bridgeSampleT(i);
+    const y = curveHeight(t);
     for (let across = -halfWidth; across <= halfWidth; across++) {
-      const position = bridgeWorldPosition(i / state.span, y, across);
+      const position = bridgeWorldPosition(t, y, across);
       const x = Math.round(position.x);
       const z = Math.round(position.z);
       for (let d = 0; d < state.thickness; d++) add(x, y - d, z);
     }
     if (state.railings) {
       [-halfWidth, halfWidth].forEach((across) => {
-        const position = bridgeWorldPosition(i / state.span, y + 1, across);
+        const position = bridgeWorldPosition(t, y + 1, across);
         add(Math.round(position.x), y + 1, Math.round(position.z), "railing");
       });
     }
@@ -559,7 +570,7 @@ function drawProfile() {
   const range = heightRange(heights);
   const profileRange = Math.max(1, range.rise);
   const points = heights.map((height, i) => ({
-    x: 6 + (i / state.span) * (w - 12),
+    x: 6 + bridgeSampleT(i) * (w - 12),
     y: h - 10 - ((height - range.min) / profileRange) * (h - 28),
   }));
   ctx.beginPath();
@@ -647,10 +658,10 @@ function updatePointControls() {
   $("#popoverPointLabel").textContent = endpoint
     ? `${state.selectedPoint === 0 ? "Start" : "End"} endpoint`
     : `Point ${state.selectedPoint} of ${state.customPoints.length - 2}`;
-  $("#popupPointX").value = Number((point.t * state.span).toFixed(2));
+  $("#popupPointX").value = Number((point.t * spanDistance()).toFixed(2));
   $("#popupPointY").value = Number((point.h * state.rise).toFixed(2));
   $("#popupPointX").min = 0;
-  $("#popupPointX").max = state.span;
+  $("#popupPointX").max = spanDistance();
   $("#popupPointY").min = -state.rise;
   $("#popupPointY").max = state.rise * 2;
   $("#popupPointX").disabled = endpoint;
@@ -862,7 +873,8 @@ function bindControls() {
     if (event.target.value === "") return;
     if (!popoverEditRecorded) pushHistory();
     popoverEditRecorded = true;
-    updateSelectedPoint("t", Number(event.target.value) / state.span);
+    const distance = spanDistance();
+    updateSelectedPoint("t", distance === 0 ? 0 : Number(event.target.value) / distance);
   });
   $("#popupPointY").addEventListener("input", (event) => {
     if (event.target.value === "") return;
@@ -969,7 +981,7 @@ function bindControls() {
     const deltaWorldX = (dx * vy.y - dy * vy.x) / det;
     const deltaWorldY = (vx.x * dy - vx.y * dx) / det;
     if (dragAxis !== "y" && index > 0 && index < state.customPoints.length - 1) {
-      point.t = Math.max(.02, Math.min(.98, point.t + deltaWorldX / state.span));
+      point.t = Math.max(.02, Math.min(.98, point.t + deltaWorldX / Math.max(1, spanDistance())));
     }
     if (dragAxis !== "x") {
       point.h = Math.max(-1, Math.min(2, point.h + deltaWorldY / state.rise));
@@ -1051,7 +1063,11 @@ function bindControls() {
   window.addEventListener("resize", () => { drawProfile(); scheduleRender(); });
 }
 
-initWebGL();
-bindControls();
-buildModel();
-setView("orbital");
+if (typeof document !== "undefined") {
+  initWebGL();
+  bindControls();
+  buildModel();
+  setView("orbital");
+}
+
+export { bridgeSampleT, bridgeWorldPosition, deckHeights, rawCurve, spanDistance, state };
